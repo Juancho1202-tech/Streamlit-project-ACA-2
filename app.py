@@ -48,29 +48,27 @@ def load_model_and_metadata():
 def make_gradcam_heatmap(img_array, model, pred_index):
     base_model = model.get_layer("efficientnetb0")
     last_conv_layer = base_model.get_layer("top_conv")
-    base_submodel = tf.keras.Model(base_model.inputs, [last_conv_layer.output, base_model.output])
-
-    classifier_layers = []
-    start_collecting = False
-    for layer in model.layers:
-        if layer.name == "efficientnetb0":
-            start_collecting = True
-            continue
-        if start_collecting:
-            classifier_layers.append(layer)
+    
+    # Crear extractor de características convolucionales
+    grad_model = tf.keras.Model(
+        inputs=base_model.input,
+        outputs=[last_conv_layer.output, base_model.output]
+    )
+    
+    # Obtener capas posteriores a efficientnetb0
+    idx_base = [i for i, l in enumerate(model.layers) if l.name == "efficientnetb0"][0]
+    post_layers = model.layers[idx_base + 1:]
 
     with tf.GradientTape() as tape:
-        conv_outputs, base_out = base_submodel(img_array, training=False)
+        conv_outputs, x = grad_model(tf.cast(img_array, tf.float32), training=False)
         tape.watch(conv_outputs)
-        x = base_out
-        for layer in classifier_layers:
+        for layer in post_layers:
             x = layer(x, training=False)
         class_channel = x[:, pred_index]
 
     grads = tape.gradient(class_channel, conv_outputs)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_outputs = conv_outputs[0]
-    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
+    heatmap = conv_outputs[0] @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
     heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
     return heatmap.numpy()
