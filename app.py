@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from PIL import Image
-import matplotlib.cm as cm
+import matplotlib
 import streamlit as st
 
 st.set_page_config(
@@ -46,17 +46,28 @@ def load_model_and_metadata():
     return model, info["class_names"], info["lesion_type_dict"]
 
 def make_gradcam_heatmap(img_array, model, pred_index):
-    base_model = model.get_layer("efficientnetb0")
-    last_conv_layer = base_model.get_layer("top_conv")
-    
-    # Crear extractor de características convolucionales
+    base_model = None
+    idx_base = 0
+    for i, layer in enumerate(model.layers):
+        if isinstance(layer, tf.keras.Model) and "efficientnet" in layer.name.lower():
+            base_model = layer
+            idx_base = i
+            break
+
+    if base_model is None:
+        raise ValueError("No se encontró el backbone convolucional.")
+
+    last_conv_layer = None
+    for layer in reversed(base_model.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            last_conv_layer = layer
+            break
+
     grad_model = tf.keras.Model(
-        inputs=base_model.input,
+        inputs=base_model.inputs,
         outputs=[last_conv_layer.output, base_model.output]
     )
-    
-    # Obtener capas posteriores a efficientnetb0
-    idx_base = [i for i, l in enumerate(model.layers) if l.name == "efficientnetb0"][0]
+
     post_layers = model.layers[idx_base + 1:]
 
     with tf.GradientTape() as tape:
@@ -76,15 +87,14 @@ def make_gradcam_heatmap(img_array, model, pred_index):
 def overlay_gradcam(pil_img, heatmap, alpha=0.45):
     img = np.array(pil_img.resize((IMG_SIZE, IMG_SIZE)))
     heatmap_uint8 = np.uint8(255 * heatmap)
-    jet = cm.get_cmap("jet")
+    jet = matplotlib.colormaps["jet"]
     jet_colors = jet(np.arange(256))[:, :3]
     jet_heatmap = jet_colors[heatmap_uint8]
 
-    jet_img = tf.keras.utils.array_to_img(jet_heatmap)
-    jet_img = jet_img.resize((IMG_SIZE, IMG_SIZE))
-    jet_array = tf.keras.utils.img_to_array(jet_img)
+    jet_img = Image.fromarray(np.uint8(255 * jet_heatmap)).resize((IMG_SIZE, IMG_SIZE))
+    jet_array = np.array(jet_img, dtype=np.float32)
 
-    superimposed = jet_array * alpha + img
+    superimposed = jet_array * alpha + img.astype(np.float32)
     superimposed = np.clip(superimposed, 0, 255).astype(np.uint8)
     return Image.fromarray(superimposed)
 
@@ -161,8 +171,8 @@ if pil_image is not None:
             heatmap = make_gradcam_heatmap(img_array, model, top_idx)
             gradcam_img = overlay_gradcam(pil_image, heatmap)
             st.image(gradcam_img, caption="Regiones de mayor atención neuronal", use_container_width=True)
-        except Exception:
-            st.warning("No se pudo generar el mapa Grad-CAM para esta arquitectura.")
+        except Exception as e:
+            st.warning(f"No se pudo generar el mapa Grad-CAM: {e}")
 
     with col3:
         st.subheader("Resultado Diagnóstico")
