@@ -1,0 +1,20 @@
+{
+  "class_names": [
+    "akiec",
+    "bcc",
+    "bkl",
+    "df",
+    "mel",
+    "nv",
+    "vasc"
+  ],
+  "lesion_type_dict": {
+    "nv": "Nevos melanocíticos (Lunar benigno)",
+    "mel": "Melanoma",
+    "bkl": "Queratosis benigna",
+    "bcc": "Carcinoma basocelular",
+    "akiec": "Queratosis actínica",
+    "vasc": "Lesiones vasculares",
+    "df": "Dermatofibroma"
+  }
+}
